@@ -1,0 +1,17 @@
+.env
+venv
+backtest
+betting_lines
+data
+stats
+player_stats
+player_ingestor
+*__pycache__
+.DS_Store
+
+player_updater.py
+backtest.py
+bet_builder.py
+betting_lines_analyzer.py
+player_stats.py
+team_stats.py
