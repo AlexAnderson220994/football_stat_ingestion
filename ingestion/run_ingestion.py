@@ -195,41 +195,98 @@ def ingest_single_league():
 
 def update_all_leagues():
     """
-    Update all leagues to their current season
+    Update all leagues that have previously been ingested (current season only).
+    Leagues with no ingestion state are skipped automatically.
     """
-    console.print("\n[bold cyan]Updating all leagues (current season only)...[/bold cyan]\n")
-    
+    console.print("\n[bold cyan]Updating ingested leagues (current season only)...[/bold cyan]\n")
+
     # Initialize components
     rate_limiter = RateLimiter()
     api_client = APIClient(rate_limiter)
     league_mapper = LeagueMapper(api_client)
-    
-    # Fetch all leagues
+
+    # Fetch all league metadata
     console.print("[yellow]Loading league data...[/yellow]")
     leagues_data = league_mapper.fetch_and_map_leagues()
-    
+
+    # Only keep leagues that have at least one ingestion state on disk
+    existing_states = get_all_ingestion_states()
+    ingested_league_keys = {state.league_key for state in existing_states.values()}
+    leagues_to_update = {
+        key: data for key, data in leagues_data.items()
+        if key in ingested_league_keys
+    }
+    skipped_count = len(leagues_data) - len(leagues_to_update)
+
     # Show rate limit status
     console.print("\n")
     status = rate_limiter.get_status()
     console.print(f"[dim]Rate Limit: {status['calls_this_hour']}/{status['requests_per_hour']} used, "
                  f"{status['remaining_requests']} remaining[/dim]\n")
-    
-    # Confirm before proceeding
-    console.print(f"[bold]This will update the latest season for {len(leagues_data)} leagues.[/bold]")
-    console.print("[yellow]This may use significant API calls.[/yellow]")
+
+    if not leagues_to_update:
+        console.print("[yellow]No previously ingested leagues found. Use option 1 to ingest a league first.[/yellow]")
+        return
+
+    # Sub-menu: ask which group to update
+    MAJOR_LEAGUE_KEYS = {
+        "england_premier_league", "england_championship",
+        "england_league_one", "england_league_two",
+        "spain_la_liga", "germany_bundesliga",
+        "italy_serie_a", "france_ligue_1",
+        "portugal_liga_nos", "netherlands_eredivisie",
+        "scotland_premiership", "belgium_pro_league",
+        "turkey_süper_lig", "denmark_superliga",
+        "norway_eliteserien", "brazil_serie_a",
+        "argentina_primera_division",
+    }
+    EUROPEAN_KEYS = {
+        "champions_league", "europa_league", "europa_conference_league",
+    }
+
+    console.print("\n[bold]Select which leagues to update:[/bold]")
+    console.print("  1. Major domestic leagues")
+    console.print("  2. European competitions (UCL / UEL / UECL)")
+    console.print("  3. All ingested leagues")
+
+    scope_choice = console.input("\n[bold]Your choice (1-3): [/bold]").strip()
+
+    if scope_choice == "1":
+        leagues_to_update = {k: v for k, v in leagues_to_update.items() if k in MAJOR_LEAGUE_KEYS}
+        scope_label = "major domestic leagues"
+    elif scope_choice == "2":
+        leagues_to_update = {k: v for k, v in leagues_to_update.items() if k in EUROPEAN_KEYS}
+        scope_label = "European competitions"
+    elif scope_choice == "3":
+        scope_label = "all ingested leagues"
+    else:
+        console.print("[red]Invalid choice, cancelling.[/red]")
+        return
+
+    if not leagues_to_update:
+        console.print(f"[yellow]No ingested leagues found in that group.[/yellow]")
+        return
+
+    console.print(f"\n[bold]Leagues with data ({scope_label}):[/bold] {len(leagues_to_update)}")
+    console.print(f"[dim]Skipping {skipped_count} leagues with no ingested data.[/dim]")
+    console.print("\n[bold]Will update:[/bold]")
+    for key, data in leagues_to_update.items():
+        console.print(f"  • {data['name']}")
+
+    console.print("\n[yellow]This may use significant API calls.[/yellow]")
     confirm = console.input("\n[bold]Proceed with bulk update? (y/n): [/bold]")
-    
+
     if confirm.lower() != 'y':
         console.print("[yellow]Bulk update cancelled[/yellow]")
         return
-    
+
     successful = 0
     failed = 0
     skipped = 0
-    
-    for idx, (league_key, league_data) in enumerate(leagues_data.items(), 1):
+
+    for idx, (league_key, league_data) in enumerate(leagues_to_update.items(), 1):
         console.print(f"\n[cyan]{'='*60}[/cyan]")
-        console.print(f"[bold cyan]League {idx}/{len(leagues_data)}: {league_data['name']}[/bold cyan]")
+        console.print(f"[bold cyan]League {idx}/{len(leagues_to_update)}: {league_data['name']}[/bold cyan]")
         console.print(f"[cyan]{'='*60}[/cyan]")
         
         # Get latest season using the mapper method (ensures proper sorting)
